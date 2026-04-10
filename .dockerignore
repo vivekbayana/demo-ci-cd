@@ -1,0 +1,8 @@
+bin
+obj
+charts/packages
+**/bin
+**/obj
+.vs
+*.user
+*.suo

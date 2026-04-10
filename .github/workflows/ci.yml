@@ -3,6 +3,8 @@ name: CI Pipeline
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -12,8 +14,50 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Print message
-        run: echo "Build successful"
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 8.0.x
 
-      - name: Run tests
-        run: echo "Tests passed"
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.12.0
+
+      - name: Restore .NET dependencies
+        run: dotnet restore src/DemoApp/DemoApp.csproj
+
+      - name: Build .NET application
+        run: dotnet build src/DemoApp/DemoApp.csproj --configuration Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test tests/DemoApp.Tests/DemoApp.Tests.csproj --configuration Release --no-restore --verbosity normal
+
+      - name: Build Docker image
+        run: docker build -t demo-app:latest .
+
+      - name: Lint Helm chart
+        run: helm lint charts/demo-app
+
+      - name: Package Helm chart
+        run: helm package charts/demo-app --destination charts/packages
+
+      - name: Upload Helm package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: charts/packages/demo-app-0.1.0.tgz
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v5
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker tag demo-app:latest ghcr.io/${{ github.repository_owner }}/demo-app:latest
+          docker push ghcr.io/${{ github.repository_owner }}/demo-app:latest
